@@ -7,25 +7,26 @@ TOKEN = os.environ["BOT_TOKEN"]
 
 CHANNEL = "@Spark_news_tel"
 
-# 🔐 فقط ادمین مجاز
+# 🔐 فقط تو
 ALLOWED_USERS = [8293164271]
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ذخیره وضعیت کاربران
+# ذخیره وضعیت موقت
 state = {}
 
+
 # ─────────────── چک دسترسی ───────────────
-def is_allowed(user_id: int):
+def allowed(user_id: int):
     return user_id in ALLOWED_USERS
 
 
 # ─────────────── دریافت فوروارد ───────────────
 @dp.message(F.forward_from | F.forward_from_chat)
-async def on_forward(msg: types.Message):
+async def forward_handler(msg: types.Message):
 
-    if not is_allowed(msg.from_user.id):
+    if not allowed(msg.from_user.id):
         return
 
     user_id = msg.from_user.id
@@ -47,33 +48,38 @@ async def on_forward(msg: types.Message):
 
 # ─────────────── دکمه‌ها ───────────────
 @dp.callback_query()
-async def callbacks(call: types.CallbackQuery):
+async def callback_handler(call: types.CallbackQuery):
 
-    if not is_allowed(call.from_user.id):
+    if not allowed(call.from_user.id):
         await call.answer("⛔ دسترسی نداری", show_alert=True)
         return
+
+    await call.answer()  # مهم برای جلوگیری از لود شدن دکمه
 
     user_id = call.from_user.id
 
     if user_id not in state:
-        await call.answer("⛔ چیزی پیدا نشد")
+        await call.message.edit_text("⛔ داده‌ای پیدا نشد")
         return
+
+    data = state[user_id]
 
     # ❌ لغو
     if call.data == "no":
         await call.message.edit_text("❌ لغو شد")
         state.pop(user_id, None)
+        return
 
     # ✏️ درخواست کپشن
-    elif call.data == "yes":
+    if call.data == "yes":
         await call.message.edit_text("✏️ کپشن جدید رو بفرست")
+        return
 
-    # 📢 انتشار نهایی
-    elif call.data == "publish":
+    # 📢 انتشار
+    if call.data == "publish":
 
-        item = state[user_id]
-        msg = item["msg"]
-        caption = item["caption"]
+        msg = data["msg"]
+        caption = data["caption"]
 
         final_text = f"{caption}\n\n@Spark_news_tel"
 
@@ -93,16 +99,25 @@ async def callbacks(call: types.CallbackQuery):
                 caption=final_text
             )
 
-        await call.message.edit_text("✅ پست شد در کانال")
+        # ✅ پیام موفقیت به خودت
+        await bot.send_message(
+            chat_id=user_id,
+            text="✅ پست با موفقیت در کانال منتشر شد"
+        )
+
+        try:
+            await call.message.delete()
+        except:
+            pass
 
         state.pop(user_id, None)
 
 
-# ─────────────── دریافت کپشن ───────────────
+# ─────────────── گرفتن کپشن ───────────────
 @dp.message()
-async def get_caption(msg: types.Message):
+async def caption_handler(msg: types.Message):
 
-    if not is_allowed(msg.from_user.id):
+    if not allowed(msg.from_user.id):
         return
 
     user_id = msg.from_user.id
