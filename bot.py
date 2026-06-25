@@ -4,128 +4,146 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import os
 
 TOKEN = os.environ["BOT_TOKEN"]
+
 CHANNEL = "@Spark_news_tel"
+
+# 🔐 فقط ادمین مجاز
+ALLOWED_USERS = [8293164271]
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ذخیره موقت داده‌ها
-data = {}
+# ذخیره وضعیت کاربران
+state = {}
 
-# ─────────────── دریافت پست فوروارد شده ───────────────
+# ─────────────── چک دسترسی ───────────────
+def is_allowed(user_id: int):
+    return user_id in ALLOWED_USERS
+
+
+# ─────────────── دریافت فوروارد ───────────────
 @dp.message(F.forward_from | F.forward_from_chat)
-async def handle_forward(msg: types.Message):
+async def on_forward(msg: types.Message):
+
+    if not is_allowed(msg.from_user.id):
+        return
+
     user_id = msg.from_user.id
 
-    data[user_id] = {
+    state[user_id] = {
         "msg": msg,
         "caption": None
     }
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    kb = InlineKeyboardMarkup(inline_keyboard=[
         [
-            InlineKeyboardButton(text="✅ بله", callback_data="ask_caption_yes"),
-            InlineKeyboardButton(text="❌ خیر", callback_data="ask_caption_no")
+            InlineKeyboardButton(text="✅ بله", callback_data="yes"),
+            InlineKeyboardButton(text="❌ خیر", callback_data="no")
         ]
     ])
 
-    await msg.answer("📥 میخوای کپشن بزنی؟", reply_markup=keyboard)
+    await msg.answer("📥 میخوای کپشن بزنی؟", reply_markup=kb)
 
 
 # ─────────────── دکمه‌ها ───────────────
 @dp.callback_query()
 async def callbacks(call: types.CallbackQuery):
+
+    if not is_allowed(call.from_user.id):
+        await call.answer("⛔ دسترسی نداری", show_alert=True)
+        return
+
     user_id = call.from_user.id
 
-    # لغو
-    if call.data == "ask_caption_no":
-        data.pop(user_id, None)
-        await call.message.edit_text("❌ لغو شد")
+    if user_id not in state:
+        await call.answer("⛔ چیزی پیدا نشد")
+        return
 
-    # درخواست کپشن
-    elif call.data == "ask_caption_yes":
+    # ❌ لغو
+    if call.data == "no":
+        await call.message.edit_text("❌ لغو شد")
+        state.pop(user_id, None)
+
+    # ✏️ درخواست کپشن
+    elif call.data == "yes":
         await call.message.edit_text("✏️ کپشن جدید رو بفرست")
 
-    # انتشار
+    # 📢 انتشار نهایی
     elif call.data == "publish":
-        item = data.get(user_id)
 
-        if not item:
-            await call.message.edit_text("❌ چیزی پیدا نشد")
-            return
-
+        item = state[user_id]
         msg = item["msg"]
         caption = item["caption"]
 
-        final_caption = f"{caption}\n\n@Spark_news_tel"
+        final_text = f"{caption}\n\n@Spark_news_tel"
 
-        # ارسال واقعی به کانال (بدون forward)
+        # 📤 ارسال به کانال (عکس)
         if msg.photo:
             await bot.send_photo(
                 chat_id=CHANNEL,
                 photo=msg.photo[-1].file_id,
-                caption=final_caption
+                caption=final_text
             )
 
+        # 📤 ارسال به کانال (ویدیو)
         elif msg.video:
             await bot.send_video(
                 chat_id=CHANNEL,
                 video=msg.video.file_id,
-                caption=final_caption
+                caption=final_text
             )
 
-        else:
-            await call.message.edit_text("❌ فقط عکس و ویدیو پشتیبانی میشه")
-            return
+        await call.message.edit_text("✅ پست شد در کانال")
 
-        await call.message.edit_text("✅ با موفقیت در کانال منتشر شد")
-        data.pop(user_id, None)
+        state.pop(user_id, None)
 
 
-# ─────────────── گرفتن کپشن ───────────────
+# ─────────────── دریافت کپشن ───────────────
 @dp.message()
 async def get_caption(msg: types.Message):
+
+    if not is_allowed(msg.from_user.id):
+        return
+
     user_id = msg.from_user.id
 
-    if user_id in data and data[user_id]["caption"] is None:
+    if user_id in state and state[user_id]["caption"] is None:
+        state[user_id]["caption"] = msg.text
 
-        data[user_id]["caption"] = msg.text
+        original = state[user_id]["msg"]
+        text = f"{msg.text}\n\n@Spark_news_tel"
 
-        original = data[user_id]["msg"]
-
-        preview_text = f"{msg.text}\n\n@Spark_news_tel"
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        kb = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="✅ تایید و پست", callback_data="publish")
             ]
         ])
 
-        # پیش‌نمایش عکس
+        # 👀 پیش‌نمایش عکس
         if original.photo:
             await bot.send_photo(
                 chat_id=user_id,
                 photo=original.photo[-1].file_id,
-                caption=preview_text,
-                reply_markup=keyboard
+                caption=text,
+                reply_markup=kb
             )
 
-        # پیش‌نمایش ویدیو
+        # 👀 پیش‌نمایش ویدیو
         elif original.video:
             await bot.send_video(
                 chat_id=user_id,
                 video=original.video.file_id,
-                caption=preview_text,
-                reply_markup=keyboard
+                caption=text,
+                reply_markup=kb
             )
 
         else:
-            await msg.answer("❌ فقط عکس و ویدیو پشتیبانی میشه")
+            await msg.answer("❌ فقط عکس یا ویدیو پشتیبانی میشه")
 
 
 # ─────────────── اجرا ───────────────
 async def main():
-    print("Bot is running...")
+    print("🤖 Bot is running...")
     await dp.start_polling(bot)
 
 asyncio.run(main())
