@@ -1,23 +1,24 @@
+import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-import asyncio
 import os
 
 TOKEN = os.environ["BOT_TOKEN"]
+CHANNEL = "@Spark_news_tel"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ذخیره موقت
-data = {}
+# ذخیره موقت داده‌ها
+user_data = {}
 
-# ─────────────── 1. دریافت فوروارد ───────────────
+# ─────────────── دریافت فوروارد ───────────────
 @dp.message(F.forward_from | F.forward_from_chat)
 async def get_post(msg: types.Message):
     user_id = msg.from_user.id
 
-    data[user_id] = {
-        "message": msg,
+    user_data[user_id] = {
+        "msg": msg,
         "caption": None
     }
 
@@ -31,56 +32,89 @@ async def get_post(msg: types.Message):
     await msg.answer("📥 میخوای کپشن بزنی؟", reply_markup=kb)
 
 
-# ─────────────── 2. دکمه‌ها ───────────────
+# ─────────────── دکمه‌ها ───────────────
 @dp.callback_query()
 async def callback(call: types.CallbackQuery):
     user_id = call.from_user.id
 
+    # رد کردن
     if call.data == "no":
         await call.message.edit_text("❌ لغو شد")
-        data.pop(user_id, None)
+        user_data.pop(user_id, None)
 
+    # شروع کپشن
     elif call.data == "yes":
         await call.message.edit_text("✏️ کپشن جدید رو بفرست")
 
+    # ارسال نهایی به کانال
     elif call.data == "publish":
-        post = data[user_id]
-        msg = post["message"]
-        caption = post["caption"]
+        data = user_data[user_id]
+        msg = data["msg"]
+        caption = data["caption"]
 
-        text = f"{caption}\n\n@Spark_rap"
+        final_text = f"{caption}\n\n@Spark_news_tel"
 
+        # عکس
         if msg.photo:
-            await bot.send_photo(user_id, msg.photo[-1].file_id, caption=text)
+            await bot.send_photo(
+                chat_id=CHANNEL,
+                photo=msg.photo[-1].file_id,
+                caption=final_text
+            )
+
+        # ویدیو
         elif msg.video:
-            await bot.send_video(user_id, msg.video.file_id, caption=text)
+            await bot.send_video(
+                chat_id=CHANNEL,
+                video=msg.video.file_id,
+                caption=final_text
+            )
 
-        await call.message.edit_text("✅ منتشر شد")
-        data.pop(user_id, None)
+        await call.message.edit_text("✅ پست شد در کانال")
+        user_data.pop(user_id, None)
 
 
-# ─────────────── 3. گرفتن کپشن ───────────────
+# ─────────────── دریافت کپشن ───────────────
 @dp.message()
 async def get_caption(msg: types.Message):
     user_id = msg.from_user.id
 
-    if user_id in data and data[user_id]["caption"] is None:
-        data[user_id]["caption"] = msg.text
+    if user_id in user_data and user_data[user_id]["caption"] is None:
+        user_data[user_id]["caption"] = msg.text
 
-        post = data[user_id]["message"]
+        original = user_data[user_id]["msg"]
 
-        text = f"{msg.text}\n\n@Spark_rap"
+        preview_text = f"{msg.text}\n\n@Spark_news_tel"
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ تایید و پست", callback_data="publish")]
+            [
+                InlineKeyboardButton(text="✅ تایید و پست", callback_data="publish")
+            ]
         ])
 
-        if post.photo:
-            await bot.send_photo(user_id, post.photo[-1].file_id, caption=text, reply_markup=kb)
-        elif post.video:
-            await bot.send_video(user_id, post.video.file_id, caption=text, reply_markup=kb)
+        # پیش‌نمایش عکس
+        if original.photo:
+            await bot.send_photo(
+                chat_id=user_id,
+                photo=original.photo[-1].file_id,
+                caption=preview_text,
+                reply_markup=kb
+            )
+
+        # پیش‌نمایش ویدیو
+        elif original.video:
+            await bot.send_video(
+                chat_id=user_id,
+                video=original.video.file_id,
+                caption=preview_text,
+                reply_markup=kb
+            )
+
+        else:
+            await msg.answer("❌ فقط عکس یا ویدیو پشتیبانی میشه")
 
 
+# ─────────────── اجرا ───────────────
 async def main():
     await dp.start_polling(bot)
 
